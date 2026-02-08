@@ -1,0 +1,33 @@
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/*.tfvars
+**/.terragrunt-cache/
+
+# Ansible
+**/inventory/hosts.ini
+**/*.retry
+
+# Laravel
+app/vendor/
+app/node_modules/
+app/.env
+app/storage/logs/*.log
+app/bootstrap/cache/*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+**/secrets/
+**/*.pem
+**/*.key
