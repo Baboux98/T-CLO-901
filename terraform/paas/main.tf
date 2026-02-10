@@ -51,17 +51,23 @@ resource "azurerm_linux_web_app" "main" {
     # Use Docker container from GitHub Container Registry (GHCR)
     # Free unlimited private images!
     application_stack {
-      docker_image_name   = "ghcr.io/${var.github_username}/t-clo-901-app:latest"
-      docker_registry_url = "https://ghcr.io"
+      # docker_image_name   = "ghcr.io/${var.github_username}/t-clo-901-app:latest"
+      # docker_registry_url = "https://ghcr.io"
+      # docker_image_name        = "ghcr.io/${var.github_username}/t-clo-901-app:latest"
+      docker_image_name        = "ghcr.io/${lower(var.github_username)}/t-clo-901-app:latest"
+      docker_registry_url      = "https://ghcr.io"
+      docker_registry_username = var.github_username
+      docker_registry_password = var.github_token
     }
   }
 
   # Environment variables for your Laravel app
   app_settings = {
-    "APP_NAME"  = var.app_name
-    "APP_ENV"   = var.environment
+    "APP_NAME" = var.app_name
+    # "APP_ENV"   = var.environment
+    APP_ENV     = var.environment == "development" ? "local" : var.environment
     "APP_KEY"   = var.app_key
-    "APP_DEBUG" = "true" # Set to false in production
+    "APP_DEBUG" = var.environment == "development" ? "true" : "false"
     "APP_URL"   = "https://app-${var.app_name}-${var.environment}.azurewebsites.net"
 
     # Database connection
@@ -71,15 +77,26 @@ resource "azurerm_linux_web_app" "main" {
     "DB_DATABASE"   = var.db_name
     "DB_USERNAME"   = var.db_admin_username
     "DB_PASSWORD"   = var.db_admin_password
+    # 🔥 Kill DATABASE_URL
+    DATABASE_URL = ""
 
     # Laravel-specific
     "LOG_CHANNEL"                         = "stderr"
     "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
 
     # GitHub Container Registry Authentication
-    "DOCKER_REGISTRY_SERVER_URL"      = "https://ghcr.io"
-    "DOCKER_REGISTRY_SERVER_USERNAME" = var.github_username
-    "DOCKER_REGISTRY_SERVER_PASSWORD" = var.github_token
+    # I didn't understand the full story the it brought out an error
+    # Error: cannot set a value for DOCKER_REGISTRY_SERVER_USERNAME in app_settings
+    # "DOCKER_REGISTRY_SERVER_URL"      = "https://ghcr.io"
+    # "DOCKER_REGISTRY_SERVER_USERNAME" = var.github_username
+    # "DOCKER_REGISTRY_SERVER_PASSWORD" = var.github_token
+
+    # Azure MySQL Flexible Server has this enabled by default:
+    # require_secure_transport = ON
+    # That means:👉 ONLY SSL/TLS connections are allowed
+    # Azure provides a public CA cert.
+    # Inside Azure App Service, the recommended path is:
+    "MYSQL_ATTR_SSL_CA" = "/etc/ssl/certs/DigiCertGlobalRootCA.crt.pem"
   }
 
   tags = {
