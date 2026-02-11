@@ -1,0 +1,90 @@
+# ============================================
+# ANSIBLE PLAYBOOK - IaaS Deployment
+# ============================================
+# This playbook configures a fresh Ubuntu VM to run
+# the Laravel application using Docker.
+#
+# ENVIRONMENT BEHAVIOR:
+#   dev     → Docker Compose with app + MySQL containers
+#   staging → Docker app only + external Azure MySQL
+#   prod    → Docker app only + external Azure MySQL
+#
+# The 'use_external_db' variable (set by Terraform in inventory)
+# controls whether MySQL runs locally or externally.
+#
+# Usage:
+#   ansible-playbook -i inventory/dev/hosts.ini playbook.yml
+#   ansible-playbook -i inventory/staging/hosts.ini playbook.yml
+#   ansible-playbook -i inventory/prod/hosts.ini playbook.yml
+
+---
+- name: "Deploy Laravel Application on Azure VM (IaaS - {{ environment }})"
+  hosts: webservers
+  become: true
+
+  # Variables are passed from Terraform via the inventory file:
+  # app_name, app_key, db_name, db_username, db_password,
+  # github_username, github_token, environment,
+  # use_external_db, db_host
+
+  pre_tasks:
+    # ============================================
+    # PRE-FLIGHT CHECKS
+    # ============================================
+    - name: "[CHECK] Display environment info"
+      debug:
+        msg: |
+          🚀 Deploying {{ environment | upper }} environment
+            - Host: {{ inventory_hostname }}
+            - Database: {{ 'External Azure MySQL (' + db_host + ')' if use_external_db | bool else 'Local Docker MySQL' }}
+
+    - name: "[CHECK] Verify SSH connectivity"
+      ping:
+
+    - name: "[CHECK] Verify OS is Ubuntu"
+      assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+        fail_msg: "This playbook requires Ubuntu. Found: {{ ansible_distribution }}"
+        success_msg: "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    - name: "[CHECK] Verify minimum disk space (10 GB free)"
+      assert:
+        that:
+          - item.size_available > 10737418240
+        fail_msg: "Not enough disk space! Need at least 10 GB free."
+        success_msg: "Disk: {{ (item.size_available / 1073741824) | round(1) }} GB free"
+      loop: "{{ ansible_mounts }}"
+      when: item.mount == "/"
+
+    - name: "[CHECK] Verify minimum RAM (512 MB)"
+      assert:
+        that:
+          - ansible_memtotal_mb >= 512
+        fail_msg: "Not enough RAM! Found: {{ ansible_memtotal_mb }} MB"
+        success_msg: "RAM: {{ ansible_memtotal_mb }} MB"
+
+    - name: "[CHECK] Verify apt is available"
+      command: apt --version
+      changed_when: false
+
+    - name: "[CHECK] Verify external DB is reachable (staging/prod only)"
+      wait_for:
+        host: "{{ db_host }}"
+        port: 3306
+        timeout: 30
+      when: use_external_db | bool
+
+    - name: "[CHECK] Pre-flight summary"
+      debug:
+        msg: |
+          ✅ Pre-flight checks passed!
+            - SSH: Connected
+            - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+            - RAM: {{ ansible_memtotal_mb }} MB
+            - Database: {{ 'External MySQL reachable' if use_external_db | bool else 'Will run in Docker' }}
+            - Ready to deploy {{ environment }}!
+
+  roles:
+    - docker
+    - app

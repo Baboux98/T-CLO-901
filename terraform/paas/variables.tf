@@ -1,87 +1,108 @@
-# Variables allow you to customize your deployment without changing the main code
-# Think of these as function parameters
+# ============================================
+# PAAS VARIABLES - Multi-Environment
+# ============================================
+# These variables support 3 environments:
+#   dev     → F1 (free) + SQLite (in-app database)
+#   staging → B1 + shared external Azure MySQL
+#   prod    → B1 + shared external Azure MySQL
 
-# Azure subscription ID
 variable "subscription_id" {
-  description = "Azure subscription ID (get with: az account show --query id -o tsv)"
+  description = "Azure subscription ID"
   type        = string
-  sensitive   = true # Hide in logs
+  sensitive   = true
 }
 
-# Azure region where resources will be created
 variable "location" {
   description = "Azure region for resources"
   type        = string
-  default     = "northeurope" # Change to your preferred region
 }
 
-# Name of the resource group (container for all Azure resources)
 variable "resource_group_name" {
   description = "Name of the resource group"
   type        = string
 }
 
-# Base name for your application (used to name various resources)
 variable "app_name" {
   description = "Base name for the application"
   type        = string
 }
 
-# Environment (dev, staging, prod)
 variable "environment" {
-  description = "Environment name"
+  description = "Environment name (dev, staging, prod)"
   type        = string
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be dev, staging, or prod."
+  }
 }
 
-# MySQL database name
+# ============================================
+# APP SERVICE CONFIGURATION
+# ============================================
+
+variable "app_service_sku" {
+  description = "App Service Plan SKU (F1=Free, B1=Basic)"
+  type        = string
+  # F1 = Free (dev)
+  # B1 = Basic ~$13/month (staging/prod)
+}
+
+# ============================================
+# DATABASE CONFIGURATION
+# ============================================
+# For dev: these are ignored (SQLite is used)
+# For staging/prod: external_db_host points to the shared MySQL
+
+variable "use_external_db" {
+  description = "Whether to use external Azure MySQL (true for staging/prod, false for dev)"
+  type        = bool
+  default     = false
+}
+
+variable "external_db_host" {
+  description = "FQDN of the shared Azure MySQL server (from shared terraform output)"
+  type        = string
+  default     = ""
+}
+
 variable "db_name" {
   description = "MySQL database name"
   type        = string
+  default     = ""
 }
 
-# MySQL admin username
 variable "db_admin_username" {
   description = "MySQL administrator username"
   type        = string
+  default     = ""
 }
 
-# MySQL admin password (IMPORTANT: Don't commit this to Git!)
 variable "db_admin_password" {
   description = "MySQL administrator password"
   type        = string
-  sensitive   = true # Hides value in Terraform output
-  # You'll provide this value in terraform.tfvars
+  sensitive   = true
+  default     = ""
 }
 
-# Laravel APP_KEY (IMPORTANT: Don't commit this to Git!)
+# ============================================
+# APPLICATION CONFIGURATION
+# ============================================
+
 variable "app_key" {
-  description = "Laravel application encryption key (generate with: php artisan key:generate --show)"
+  description = "Laravel APP_KEY"
   type        = string
-  sensitive   = true                       # Hides value in Terraform output
-  default     = "base64:your-app-key-here" # Replace with actual key
+  sensitive   = true
 }
 
-# App Service SKU (size/pricing tier)
-variable "app_service_sku" {
-  description = "App Service Plan SKU"
-  type        = string
-  # Options: F1 (Free), B1 (Basic), S1 (Standard), P1V2 (Premium)
-}
-
-# MySQL SKU
-variable "mysql_sku" {
-  description = "MySQL SKU"
-  type        = string
-}
-
-# GitHub Container Registry credentials (FREE unlimited private images!)
+# GitHub Container Registry credentials
 variable "github_username" {
   description = "GitHub username"
   type        = string
 }
 
 variable "github_token" {
-  description = "GitHub Personal Access Token (PAT) with packages:read permission"
+  description = "GitHub Personal Access Token with packages:read"
   type        = string
   sensitive   = true
 }

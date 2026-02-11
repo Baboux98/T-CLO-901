@@ -1,0 +1,60 @@
+# terraform.tfvars - Your actual configuration values
+# IMPORTANT: This file contains sensitive data - add to .gitignore!
+
+# Azure Subscription ID (get with: az account show --query id -o tsv)
+subscription_id = "" # Replace with your actual subscription ID
+
+# Azure region - choose one close to you
+# Common options: "northeurope", "westeurope", "eastus", "westus2"
+# location = "northeurope"
+# location = "eastus"
+# location = "westeurope"
+# location = "newzealandnorth"
+# ["germanywestcentral","polandcentral","swedencentral","spaincentral","switzerlandnorth"]
+location = "location-here" # Replace with your actual location (e.g., "northeurope")
+
+# Resource group name - must be unique within your subscription
+resource_group_name = "resource-group-name-here" # Replace with your actual resource group name
+
+# Application name - keep it short and simple (will be part of URLs)
+app_name = "app-name-here" # Replace with your actual app name (e.g., "mywebapp")
+
+# Environment
+environment = "env" # Change to "staging" or "production" as needed
+
+# Database configuration
+db_name           = "db_name_here" # Replace with your actual database name
+db_admin_username = "dbadmin_here" # Replace with your actual admin username
+
+# IMPORTANT: Change this password!
+# Requirements: 8-128 characters, mix of uppercase, lowercase, numbers, special chars
+#db_admin_password = "YourSecurePassword123!"
+db_admin_password = "db_password_here" # Replace with your actual secure password
+
+# Laravel APP_KEY (generate with: php artisan key:generate --show)
+# Run this command in your webapp folder, then paste the output here
+# app_key = "base64:your-app-key-here"  # Replace with actual generated key
+# app_key = "base64:9jK8aYp3q4Lf7V2bXzD8M1sQ6R4nP2hT"
+app_key = "app_key_here" # Replace with your actual
+
+# App Service tier
+# Options: F1 (Free), B1 (Basic), B2 (Basic), S1 (Standard)
+# Note: Free tier (F1) has limitations - B1 is recommended for learning
+app_service_sku = "your-app-service-sku" # Replace with "F1", "B1", "B2", or "S1"
+
+# MySQL tier
+# B_Gen5_1 = Basic, 1 vCore - good for development
+# mysql_sku = "B_Gen5_1"
+# mysql_sku = "Standard_B1ms"
+# mysql_sku = "B_1"
+# mysql_sku = "B_Standard_B1s"
+# mysql_sku = "B_Standard_B1ms"
+
+# GitHub Container Registry credentials (FREE unlimited private images!)
+# Replace with your GitHub username
+github_username = "GitHubUsernameHere"
+
+# GitHub Personal Access Token (PAT)
+# Create at: https://github.com/settings/tokens/new
+# Required permission: packages:read (or write/delete for full access)
+github_token = "ghp_YourPersonalAccessTokenHere"

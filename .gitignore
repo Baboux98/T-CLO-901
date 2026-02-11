@@ -3,10 +3,12 @@
 **/.terraform.lock.hcl
 **/terraform.tfstate
 **/terraform.tfstate.backup
+**/terraform.tfstate.d/
 **/*.tfvars
 **/.terragrunt-cache/
 
 # Ansible
+**/inventory/*/hosts.ini
 **/inventory/hosts.ini
 **/*.retry
 
