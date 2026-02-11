@@ -25,9 +25,9 @@ output "resource_group_name" {
   value       = azurerm_resource_group.shared.name
 }
 
-output "environment" {
-  description = "Environment name"
-  value       = var.environment
+output "external_db_host" {
+  description = "External DB host for PaaS and IaaS to connect to"
+  value       = azurerm_mysql_flexible_server.shared.fqdn
 }
 
 # Helper: shows what to put in PaaS/IaaS tfvars

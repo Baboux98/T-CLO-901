@@ -24,6 +24,13 @@ locals {
 resource "azurerm_resource_group" "main" {
   name     = var.resource_group_name
   location = var.location
+
+  tags = local.is_dev ? {} : {
+    DeploymentType = "PaaS"
+    Environment    = var.environment
+    ManagedBy      = "Terraform"
+    Project        = "T-CLO-901"
+  }
 }
 
 # ============================================
@@ -46,7 +53,7 @@ resource "azurerm_service_plan" "main" {
 # APP SERVICE (WEB APP)
 # ============================================
 resource "azurerm_linux_web_app" "main" {
-  name                = "app-${var.app_name}"
+  name                = local.is_dev ? "app-${var.app_name}" : "app-${var.app_name}-${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   service_plan_id     = azurerm_service_plan.main.id
@@ -73,29 +80,23 @@ resource "azurerm_linux_web_app" "main" {
       "APP_ENV"   = local.is_dev ? "local" : var.environment
       "APP_KEY"   = var.app_key
       "APP_DEBUG" = local.is_dev ? "true" : "false"
-      "APP_URL"   = "https://app-${var.app_name}-${var.environment}.azurewebsites.net"
+      "APP_URL"   = local.is_dev ? "https://app-${var.app_name}.azurewebsites.net" : "https://app-${var.app_name}-${var.environment}.azurewebsites.net"
 
       "LOG_CHANNEL"                         = "stderr"
       "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = local.is_dev ? "true" : "false"
     },
+    {
+      "DB_CONNECTION" = "mysql"
+      "DB_HOST"       = var.external_db_host
+      "DB_PORT"       = "3306"
+      "DB_DATABASE"   = var.db_name
+      "DB_USERNAME"   = var.db_admin_username
+      "DB_PASSWORD"   = var.db_admin_password
+      # "DATABASE_URL"      = "mysql://${var.db_admin_username}:${var.db_admin_password}@${var.external_db_host}:3306/${var.db_name}"
+      "DATABASE_URL" = "mysql://${var.db_admin_username}:${urlencode(var.db_admin_password)}@${var.external_db_host}:3306/${var.db_name}"
 
-    # ── Dev: SQLite (database is "in the app") ──
-    local.is_dev ? {
-      "DB_CONNECTION" = "sqlite"
-      "DB_DATABASE"   = "/home/database/database.sqlite"
-    } : {},
-
-    # ── Staging/Prod: External shared Azure MySQL ──
-    !local.is_dev ? {
-      "DB_CONNECTION"     = "mysql"
-      "DB_HOST"           = var.external_db_host
-      "DB_PORT"           = "3306"
-      "DB_DATABASE"       = var.db_name
-      "DB_USERNAME"       = var.db_admin_username
-      "DB_PASSWORD"       = var.db_admin_password
-      "DATABASE_URL"      = ""
       "MYSQL_ATTR_SSL_CA" = "/etc/ssl/certs/DigiCertGlobalRootCA.crt.pem"
-    } : {}
+    }
   )
 
   tags = {

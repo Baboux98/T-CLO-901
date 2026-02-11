@@ -62,3 +62,8 @@ variable "mysql_sku" {
   # B_Standard_B1ms = 1 vCPU, 2 GB RAM (~$13/month)
   # This is the cheapest SKU that works well
 }
+
+variable "external_db_host" {
+  description = "External DB host for PaaS and IaaS to connect to"
+  type        = string
+}
