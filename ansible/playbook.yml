@@ -18,7 +18,7 @@
 #   ansible-playbook -i inventory/prod/hosts.ini playbook.yml
 
 ---
-- name: "Deploy Laravel Application on Azure VM (IaaS - {{ environment }})"
+- name: "Deploy Laravel Application on Azure VM (IaaS)"
   hosts: webservers
   become: true
 
@@ -34,7 +34,7 @@
     - name: "[CHECK] Display environment info"
       debug:
         msg: |
-          🚀 Deploying {{ environment | upper }} environment
+          🚀 Deploying {{ env | upper }} environment
             - Host: {{ inventory_hostname }}
             - Database: {{ 'External Azure MySQL (' + db_host + ')' if use_external_db | bool else 'Local Docker MySQL' }}
 
@@ -44,9 +44,9 @@
     - name: "[CHECK] Verify OS is Ubuntu"
       assert:
         that:
-          - ansible_distribution == "Ubuntu"
-        fail_msg: "This playbook requires Ubuntu. Found: {{ ansible_distribution }}"
-        success_msg: "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - ansible_facts['distribution'] == "Ubuntu"
+        fail_msg: "This playbook requires Ubuntu. Found: {{ ansible_facts['distribution'] }}"
+        success_msg: "OS: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
 
     - name: "[CHECK] Verify minimum disk space (10 GB free)"
       assert:
@@ -54,15 +54,15 @@
           - item.size_available > 10737418240
         fail_msg: "Not enough disk space! Need at least 10 GB free."
         success_msg: "Disk: {{ (item.size_available / 1073741824) | round(1) }} GB free"
-      loop: "{{ ansible_mounts }}"
+      loop: "{{ ansible_facts['mounts'] }}"
       when: item.mount == "/"
 
     - name: "[CHECK] Verify minimum RAM (512 MB)"
       assert:
         that:
-          - ansible_memtotal_mb >= 512
-        fail_msg: "Not enough RAM! Found: {{ ansible_memtotal_mb }} MB"
-        success_msg: "RAM: {{ ansible_memtotal_mb }} MB"
+          - ansible_facts['memtotal_mb'] >= 512
+        fail_msg: "Not enough RAM! Found: {{ ansible_facts['memtotal_mb'] }} MB"
+        success_msg: "RAM: {{ ansible_facts['memtotal_mb'] }} MB"
 
     - name: "[CHECK] Verify apt is available"
       command: apt --version
@@ -80,10 +80,10 @@
         msg: |
           ✅ Pre-flight checks passed!
             - SSH: Connected
-            - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
-            - RAM: {{ ansible_memtotal_mb }} MB
+            - OS: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
+            - RAM: {{ ansible_facts['memtotal_mb'] }} MB
             - Database: {{ 'External MySQL reachable' if use_external_db | bool else 'Will run in Docker' }}
-            - Ready to deploy {{ environment }}!
+            - Ready to deploy {{ env }}!
 
   roles:
     - docker
