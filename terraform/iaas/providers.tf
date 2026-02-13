@@ -1,7 +1,7 @@
 # This file tells Terraform which cloud provider to use (Azure)
 
 terraform {
-  required_version = "= 1.7.0"
+  required_version = "= 1.14.4"
 
   required_providers {
     azurerm = {

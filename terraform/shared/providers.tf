@@ -11,7 +11,7 @@
 #   terraform apply -var-file=environments/staging.tfvars
 
 terraform {
-  required_version = "= 1.7.0"
+  required_version = "= 1.14.4"
 
   required_providers {
     azurerm = {
