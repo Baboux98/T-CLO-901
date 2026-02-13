@@ -24,7 +24,7 @@ locals {
 # RESOURCE GROUP
 # ============================================
 resource "azurerm_resource_group" "main" {
-  name     = var.resource_group_name
+  name     = "${var.resource_group_name}-${var.environment}"
   location = var.location
 
   tags = {
@@ -39,7 +39,7 @@ resource "azurerm_resource_group" "main" {
 # VIRTUAL NETWORK
 # ============================================
 resource "azurerm_virtual_network" "main" {
-  name                = "vnet-${var.app_name}"
+  name                = "vnet-${var.app_name}-${var.environment}"
   address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
@@ -53,7 +53,7 @@ resource "azurerm_virtual_network" "main" {
 # SUBNET
 # ============================================
 resource "azurerm_subnet" "main" {
-  name                 = "subnet-${var.app_name}"
+  name                 = "subnet-${var.app_name}-${var.environment}"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.0.1.0/24"]
@@ -63,12 +63,11 @@ resource "azurerm_subnet" "main" {
 # PUBLIC IP ADDRESS
 # ============================================
 resource "azurerm_public_ip" "main" {
-  name                = "pip-${var.app_name}"
+  name                = "pip-${var.app_name}-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   allocation_method   = "Static"
   sku                 = "Standard"
-  zones               = ["1"]
 
   tags = {
     Environment = var.resource_group_name
@@ -79,7 +78,7 @@ resource "azurerm_public_ip" "main" {
 # NETWORK SECURITY GROUP (FIREWALL)
 # ============================================
 resource "azurerm_network_security_group" "main" {
-  name                = "nsg-${var.app_name}"
+  name                = "nsg-${var.app_name}-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
 
@@ -131,7 +130,7 @@ resource "azurerm_network_security_group" "main" {
 # NETWORK INTERFACE
 # ============================================
 resource "azurerm_network_interface" "main" {
-  name                = "nic-${var.app_name}"
+  name                = "nic-${var.app_name}-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
 
@@ -157,12 +156,11 @@ resource "azurerm_network_interface_security_group_association" "main" {
 # VIRTUAL MACHINE
 # ============================================
 resource "azurerm_linux_virtual_machine" "main" {
-  name                = "vm-${var.app_name}"
+  name                = "vm-${var.app_name}-${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   size                = var.vm_size
   admin_username      = var.vm_admin_username
-  zone                = "2"
 
 
   network_interface_ids = [
@@ -179,7 +177,7 @@ resource "azurerm_linux_virtual_machine" "main" {
   source_image_reference {
     publisher = "Canonical"
     offer     = "0001-com-ubuntu-server-jammy"
-    sku       = "22_04-lts"
+    sku       = "22_04-lts-gen2"
     version   = "latest"
   }
 
@@ -208,10 +206,10 @@ resource "azurerm_linux_virtual_machine" "main" {
 resource "local_file" "ansible_inventory" {
   content = <<-EOF
     [webservers]
-    ${azurerm_public_ip.main.ip_address} ansible_user=${var.vm_admin_username} ansible_ssh_private_key_file=~/.ssh/id_rsa
+    ${azurerm_public_ip.main.ip_address} ansible_user=${var.vm_admin_username} ansible_ssh_private_key_file=C:/Users/DELL/.ssh/id_ed25519.pub
 
     [webservers:vars]
-    app_name=${var.app_name}
+    app_name=${var.app_name}-${var.environment}
     app_key=${var.app_key}
     environment=${var.environment}
     github_username=${var.github_username}
