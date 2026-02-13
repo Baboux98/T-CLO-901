@@ -200,18 +200,18 @@
     seconds: 15
   when: use_external_db | bool
 
-# Step 9: Run Laravel migrations
-- name: "[APP] Run Laravel database migrations"
-  command: docker compose exec -T app php artisan migrate --force
-  args:
-    chdir: /opt/{{ app_name }}
-  register: migration_result
-  changed_when: "'Migrating' in migration_result.stdout"
+# # Step 9: Run Laravel migrations
+# - name: "[APP] Run Laravel database migrations"
+#   command: docker compose exec -T app php artisan migrate --force
+#   args:
+#     chdir: /opt/{{ app_name }}
+#   register: migration_result
+#   changed_when: "'Migrating' in migration_result.stdout"
 
-- name: "[APP] Display migration result"
-  debug:
-    msg: "{{ migration_result.stdout_lines }}"
-  when: migration_result.stdout_lines | length > 0
+# - name: "[APP] Display migration result"
+#   debug:
+#     msg: "{{ migration_result.stdout_lines }}"
+#   when: migration_result.stdout_lines | length > 0
 
 # Step 10: Verify containers
 - name: "[CHECK] Verify containers are running"
