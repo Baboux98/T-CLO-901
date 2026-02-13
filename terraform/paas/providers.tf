@@ -2,7 +2,7 @@
 
 # Specify the required Terraform version and providers
 terraform {
-  required_version = "= 1.14.4"
+  required_version = "= 1.7.0"
 
   required_providers {
     azurerm = {
