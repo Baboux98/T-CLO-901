@@ -25,3 +25,12 @@ provider "azurerm" {
   features {}
   subscription_id = var.subscription_id
 }
+
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "rg-t-clo-901-tfstate"
+    storage_account_name = "tclo901tfstate"
+    container_name       = "tfstate"
+    key                  = "shared.tfstate"
+  }
+}

@@ -21,3 +21,12 @@ provider "azurerm" {
   # Terraform will use Azure CLI authentication by default
   # Make sure you run 'az login' before using Terraform
 }
+
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "rg-t-clo-901-tfstate"
+    storage_account_name = "tclo901tfstate"
+    container_name       = "tfstate"
+    key                  = "paas.tfstate"
+  }
+}
