@@ -20,6 +20,7 @@
 #      - DB_ADMIN_PASSWORD
 #      - APP_KEY
 #      - SSH_PRIVATE_KEY  (for Ansible to connect to VM)
+#      - PROD_TFVARS (format: key1="value1";key2="value2")
 #
 #   3. Add these GitHub Variables (Settings → Variables):
 #      - GITHUB_USERNAME  (your GitHub username)
@@ -66,67 +67,67 @@ jobs:
   # JOB 1: Deploy Shared MySQL (staging/prod only)
   # ============================================
   deploy-shared:
-  name: "Deploy Shared MySQL (${{ inputs.environment }})"
-  runs-on: ubuntu-latest
-  # Only run for staging/prod, and only when target is 'all' or 'shared-only'
-  if: |
-    inputs.environment != 'dev' &&
-    (inputs.target == 'all' || inputs.target == 'shared-only')
-  outputs:
-    mysql_fqdn: ${{ steps.tf-output.outputs.mysql_fqdn }}
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    name: "Deploy Shared MySQL (${{ inputs.environment }})"
+    runs-on: ubuntu-latest
+    # Only run for staging/prod, and only when target is 'all' or 'shared-only'
+    if: |
+      inputs.environment != 'dev' &&
+      (inputs.target == 'all' || inputs.target == 'shared-only')
+    outputs:
+      mysql_fqdn: ${{ steps.tf-output.outputs.mysql_fqdn }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: "1.14.4"
-        terraform_wrapper: false
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+          terraform_wrapper: false
 
-    - name: Azure Login
-      uses: azure/login@v2
-      with:
-        creds: |
-          {
-            "clientId": "${{ secrets.ARM_CLIENT_ID }}",
-            "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
-            "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
-            "tenantId": "${{ secrets.ARM_TENANT_ID }}"
-          }
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
 
-    - name: Terraform Init (shared)
-      working-directory: terraform/shared
-      run: terraform init
+      - name: Terraform Init (shared)
+        working-directory: terraform/shared
+        run: terraform init
 
-    - name: Terraform Workspace
-      working-directory: terraform/shared
-      run: terraform workspace select ${{ inputs.environment }} || terraform workspace new ${{ inputs.environment }}
+      - name: Terraform Workspace
+        working-directory: terraform/shared
+        run: terraform workspace select ${{ inputs.environment }} || terraform workspace new ${{ inputs.environment }}
 
-    - name: Create Terraform vars file
-      working-directory: terraform/shared/environments
-      run: |
-        # Input format: "key1=value1;key2=value2;key3=\"quoted value\""
-        TFVARS_STRING="${{ secrets.PROD_TFVARS }}"
+      - name: Create Terraform vars file
+        working-directory: terraform/shared/environments
+        run: |
+          # Input format: "key1=value1;key2=value2;key3=\"quoted value\""
+          TFVARS_STRING="${{ secrets.PROD_TFVARS }}"
+          
+          # Convert semicolon-separated key=value pairs to .tfvars format
+          echo "$TFVARS_STRING" | tr ';' '\n' > ${{ inputs.environment }}.tfvars
+          
+          # Verify file was created (without showing content)
+          echo "Generated ${{ inputs.environment }}.tfvars with $(wc -l < ${{ inputs.environment }}.tfvars) variables"
 
-        # Convert semicolon-separated key=value pairs to .tfvars format
-        echo "$TFVARS_STRING" | tr ';' '\n' > ${{ inputs.environment }}.tfvars
+      - name: Terraform Apply (shared)
+        working-directory: terraform/shared
+        run: |
+          terraform apply -auto-approve \
+            -var-file=environments/${{ inputs.environment }}.tfvars
 
-        # Verify file was created (without showing content)
-        echo "Generated ${{ inputs.environment }}.tfvars with $(wc -l < ${{ inputs.environment }}.tfvars) variables"
-
-    - name: Terraform Apply (shared)
-      working-directory: terraform/shared
-      run: |
-        terraform apply -auto-approve \
-          -var-file=environments/${{ inputs.environment }}.tfvars
-
-    - name: Get MySQL FQDN
-      id: tf-output
-      working-directory: terraform/shared
-      run: |
-        MYSQL_FQDN=$(terraform output -raw mysql_server_fqdn)
-        echo "mysql_fqdn=$MYSQL_FQDN" >> $GITHUB_OUTPUT
+      - name: Get MySQL FQDN
+        id: tf-output
+        working-directory: terraform/shared
+        run: |
+          MYSQL_FQDN=$(terraform output -raw mysql_server_fqdn)
+          echo "mysql_fqdn=$MYSQL_FQDN" >> $GITHUB_OUTPUT
 
   # ============================================
   # JOB 2: Deploy PaaS
