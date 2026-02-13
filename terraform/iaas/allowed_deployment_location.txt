@@ -1,0 +1,23 @@
+germanywestcentral,
+polandcentral,
+swedencentral,
+spaincentral,
+switzerlandnorth
+
+az vm list-skus --location $location --all --output table > $location + .txt 
+
+
+$regions = @("germanywestcentral", "polandcentral", "swedencentral", "spaincentral", "switzerlandnorth")
+
+foreach ($region in $regions) {
+    Write-Host "`n========== $region ==========" -ForegroundColor Green
+    az vm list-skus --location $region --size Standard_B --all --output table --query "[?restrictions[0].type!='Location'].{Name:name, vCPUs:capabilities[?name=='vCPUs'].value|[0], RAM:capabilities[?name=='MemoryGB'].value|[0], Zone:locationInfo[0].zones}"
+}
+
+# Check ALL available VMs under $30/month (small sizes) in all regions
+$regions = @("germanywestcentral", "polandcentral", "swedencentral", "spaincentral", "switzerlandnorth")
+
+foreach ($region in $regions) {
+    Write-Host "`n========== $region ==========" -ForegroundColor Green
+    az vm list-skus --location $region --all --output table --query "[?restrictions[0].type!='Location' && (contains(name, 'Standard_B') || contains(name, 'Standard_A') || contains(name, 'Standard_D2s') || contains(name, 'Standard_F2'))].{Name:name, vCPUs:capabilities[?name=='vCPUs'].value|[0], RAM:capabilities[?name=='MemoryGB'].value|[0]}"
+}

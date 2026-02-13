@@ -1,0 +1,93 @@
+# ============================================
+# DOCKER ROLE - Install Docker & Docker Compose
+# ============================================
+# This role ensures Docker is installed and running
+# on the Ubuntu VM
+
+---
+# Step 1: Update apt package cache
+- name: "[DOCKER] Update apt cache"
+  apt:
+    update_cache: true
+    cache_valid_time: 3600 # Don't update if cache is less than 1 hour old
+
+# Step 2: Install prerequisites for Docker
+- name: "[DOCKER] Install required packages"
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - python3-pip
+    state: present
+
+# Step 3: Add Docker's official GPG key
+- name: "[DOCKER] Add Docker GPG key"
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+# Step 4: Add Docker repository
+- name: "[DOCKER] Add Docker repository"
+  apt_repository:
+    repo: "deb https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+    update_cache: true
+
+# Step 5: Install Docker Engine
+- name: "[DOCKER] Install Docker Engine"
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin # Docker Compose V2
+    state: present
+
+# Step 6: Start and enable Docker service
+- name: "[DOCKER] Start Docker service"
+  systemd:
+    name: docker
+    state: started
+    enabled: true # Start on boot
+
+# Step 7: Add the VM user to docker group (run docker without sudo)
+- name: "[DOCKER] Add user to docker group"
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: true
+
+# Step 8: Verify Docker is installed correctly
+- name: "[CHECK] Verify Docker is running"
+  command: docker --version
+  changed_when: false
+  register: docker_version
+
+- name: "[CHECK] Display Docker version"
+  debug:
+    msg: "Docker installed: {{ docker_version.stdout }}"
+
+# Step 9: Verify Docker Compose is installed
+- name: "[CHECK] Verify Docker Compose is available"
+  command: docker compose version
+  changed_when: false
+  register: compose_version
+
+- name: "[CHECK] Display Docker Compose version"
+  debug:
+    msg: "Docker Compose installed: {{ compose_version.stdout }}"
+
+# Step 10: Test Docker with hello-world (verify it actually works)
+- name: "[CHECK] Run Docker hello-world test"
+  command: docker run --rm hello-world
+  changed_when: false
+  register: docker_test
+
+- name: "[CHECK] Docker test passed"
+  debug:
+    msg: "✅ Docker is fully functional!"
+  when: docker_test.rc == 0

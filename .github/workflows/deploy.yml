@@ -1,0 +1,340 @@
+# ============================================
+# GITHUB ACTIONS - Deploy Infrastructure
+# ============================================
+# Deploys the full infrastructure for a given environment.
+#
+# For dev:     Deploys PaaS (F1+SQLite) + IaaS (VM+Docker with local MySQL)
+# For staging: Deploys Shared MySQL → PaaS (B1) → IaaS (VM) + Ansible
+# For prod:    Deploys Shared MySQL → PaaS (B1) → IaaS (VM) + Ansible
+#
+# PREREQUISITES:
+#   1. Create an Azure Service Principal:
+#      az ad sp create-for-rbac --name "github-actions-t-clo-901" --role contributor \
+#        --scopes /subscriptions/<SUB_ID> --sdk-auth
+#
+#   2. Add these GitHub Secrets:
+#      - ARM_CLIENT_ID
+#      - ARM_CLIENT_SECRET
+#      - ARM_TENANT_ID
+#      - ARM_SUBSCRIPTION_ID
+#      - DB_ADMIN_PASSWORD
+#      - APP_KEY
+#      - SSH_PRIVATE_KEY  (for Ansible to connect to VM)
+#
+#   3. Add these GitHub Variables (Settings → Variables):
+#      - GITHUB_USERNAME  (your GitHub username)
+#
+# USAGE:
+#   Go to Actions tab → "Deploy Infrastructure" → Run workflow
+#   Select the environment and target.
+
+name: Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy"
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      target:
+        description: "What to deploy"
+        required: true
+        type: choice
+        options:
+          - all
+          - shared-only
+          - paas-only
+          - iaas-only
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  TF_VAR_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  TF_VAR_db_admin_password: ${{ secrets.DB_ADMIN_PASSWORD }}
+  TF_VAR_app_key: ${{ secrets.APP_KEY }}
+  TF_VAR_github_token: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  # ============================================
+  # JOB 1: Deploy Shared MySQL (staging/prod only)
+  # ============================================
+  deploy-shared:
+    name: "Deploy Shared MySQL (${{ inputs.environment }})"
+    runs-on: ubuntu-latest
+    # Only run for staging/prod, and only when target is 'all' or 'shared-only'
+    if: |
+      inputs.environment != 'dev' &&
+      (inputs.target == 'all' || inputs.target == 'shared-only')
+    outputs:
+      mysql_fqdn: ${{ steps.tf-output.outputs.mysql_fqdn }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+          terraform_wrapper: false
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      - name: Terraform Init (shared)
+        working-directory: terraform/shared
+        run: terraform init
+
+      - name: Terraform Workspace
+        working-directory: terraform/shared
+        run: terraform workspace select ${{ inputs.environment }} || terraform workspace new ${{ inputs.environment }}
+
+      - name: Terraform Apply (shared)
+        working-directory: terraform/shared
+        run: |
+          terraform apply -auto-approve \
+            -var-file=environments/${{ inputs.environment }}.tfvars
+
+      - name: Get MySQL FQDN
+        id: tf-output
+        working-directory: terraform/shared
+        run: |
+          MYSQL_FQDN=$(terraform output -raw mysql_server_fqdn)
+          echo "mysql_fqdn=$MYSQL_FQDN" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # JOB 2: Deploy PaaS
+  # ============================================
+  deploy-paas:
+    name: "Deploy PaaS (${{ inputs.environment }})"
+    runs-on: ubuntu-latest
+    needs: [deploy-shared]
+    # Run if target includes PaaS; always() ensures it runs even if shared was skipped
+    if: |
+      always() &&
+      (inputs.target == 'all' || inputs.target == 'paas-only') &&
+      (needs.deploy-shared.result == 'success' || needs.deploy-shared.result == 'skipped')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+          terraform_wrapper: false
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      - name: Terraform Init (PaaS)
+        working-directory: terraform/paas
+        run: terraform init
+
+      - name: Terraform Workspace
+        working-directory: terraform/paas
+        run: terraform workspace select ${{ inputs.environment }} || terraform workspace new ${{ inputs.environment }}
+
+      # For staging/prod: inject the shared MySQL FQDN
+      - name: Set external DB host (staging/prod)
+        if: inputs.environment != 'dev'
+        run: |
+          echo "TF_VAR_external_db_host=${{ needs.deploy-shared.outputs.mysql_fqdn }}" >> $GITHUB_ENV
+
+      - name: Terraform Apply (PaaS)
+        working-directory: terraform/paas
+        run: |
+          terraform apply -auto-approve \
+            -var-file=environments/${{ inputs.environment }}.tfvars
+
+      - name: Show PaaS URL
+        working-directory: terraform/paas
+        run: terraform output app_url
+
+  # ============================================
+  # JOB 3: Deploy IaaS (VM)
+  # ============================================
+  deploy-iaas:
+    name: "Deploy IaaS VM (${{ inputs.environment }})"
+    runs-on: ubuntu-latest
+    needs: [deploy-shared]
+    if: |
+      always() &&
+      (inputs.target == 'all' || inputs.target == 'iaas-only') &&
+      (needs.deploy-shared.result == 'success' || needs.deploy-shared.result == 'skipped')
+    outputs:
+      vm_ip: ${{ steps.tf-output.outputs.vm_ip }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+          terraform_wrapper: false
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      # Generate SSH key pair for this deployment
+      - name: Generate SSH key
+        run: |
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+
+      - name: Terraform Init (IaaS)
+        working-directory: terraform/iaas
+        run: terraform init
+
+      - name: Terraform Workspace
+        working-directory: terraform/iaas
+        run: terraform workspace select ${{ inputs.environment }} || terraform workspace new ${{ inputs.environment }}
+
+      # For staging/prod: inject the shared MySQL FQDN
+      - name: Set external DB host (staging/prod)
+        if: inputs.environment != 'dev'
+        run: |
+          echo "TF_VAR_external_db_host=${{ needs.deploy-shared.outputs.mysql_fqdn }}" >> $GITHUB_ENV
+
+      - name: Terraform Apply (IaaS)
+        working-directory: terraform/iaas
+        run: |
+          terraform apply -auto-approve \
+            -var-file=environments/${{ inputs.environment }}.tfvars
+
+      - name: Get VM IP
+        id: tf-output
+        working-directory: terraform/iaas
+        run: |
+          VM_IP=$(terraform output -raw vm_public_ip)
+          echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # JOB 4: Configure VM with Ansible
+  # ============================================
+  configure-vm:
+    name: "Configure VM with Ansible (${{ inputs.environment }})"
+    runs-on: ubuntu-latest
+    needs: [deploy-iaas, deploy-shared]
+    if: |
+      always() &&
+      needs.deploy-iaas.result == 'success' &&
+      (inputs.target == 'all' || inputs.target == 'iaas-only')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible
+        run: pip install ansible
+
+      # Write SSH private key from secret
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ needs.deploy-iaas.outputs.vm_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      # Create inventory file dynamically
+      - name: Create Ansible inventory
+        run: |
+          mkdir -p ansible/inventory/${{ inputs.environment }}
+          cat > ansible/inventory/${{ inputs.environment }}/hosts.ini << 'INVENTORY'
+          [webservers]
+          ${{ needs.deploy-iaas.outputs.vm_ip }} ansible_user=azureuser ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+          [webservers:vars]
+          app_name=t-clo-901-app
+          app_key=${{ secrets.APP_KEY }}
+          environment=${{ inputs.environment }}
+          github_username=${{ github.repository_owner }}
+          github_token=${{ secrets.GITHUB_TOKEN }}
+          db_name=t-clo-901-db
+          db_username=dbadmin
+          db_password=${{ secrets.DB_ADMIN_PASSWORD }}
+          use_external_db=${{ inputs.environment != 'dev' }}
+          db_host=${{ inputs.environment == 'dev' && 'mysql' || needs.deploy-shared.outputs.mysql_fqdn }}
+          INVENTORY
+
+      # Wait for VM to be ready for SSH
+      - name: Wait for VM SSH
+        run: |
+          for i in {1..30}; do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+               -i ~/.ssh/id_rsa azureuser@${{ needs.deploy-iaas.outputs.vm_ip }} 'echo ready'; then
+              echo "VM is ready!"
+              break
+            fi
+            echo "Waiting for VM... attempt $i/30"
+            sleep 10
+          done
+
+      - name: Run Ansible Playbook
+        working-directory: ansible
+        run: |
+          ansible-playbook \
+            -i inventory/${{ inputs.environment }}/hosts.ini \
+            playbook.yml \
+            -v
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+
+  # ============================================
+  # JOB 5: Deployment Summary
+  # ============================================
+  summary:
+    name: "Deployment Summary"
+    runs-on: ubuntu-latest
+    needs: [deploy-shared, deploy-paas, deploy-iaas, configure-vm]
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "## 🚀 Deployment Summary - ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Shared MySQL | ${{ needs.deploy-shared.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| PaaS | ${{ needs.deploy-paas.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IaaS VM | ${{ needs.deploy-iaas.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ansible Config | ${{ needs.configure-vm.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY

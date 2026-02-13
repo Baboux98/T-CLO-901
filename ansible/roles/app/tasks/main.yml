@@ -1,0 +1,247 @@
+# ============================================
+# APP ROLE - Deploy Laravel Application
+# ============================================
+# This role deploys the Laravel app using Docker Compose.
+#
+# ENVIRONMENT BEHAVIOR:
+#   use_external_db=false (dev):
+#     → Docker Compose with BOTH app + MySQL containers
+#     → DB_HOST = "mysql" (Docker service name)
+#
+#   use_external_db=true (staging/prod):
+#     → Docker Compose with ONLY the app container
+#     → DB_HOST = external Azure MySQL FQDN
+#     → SSL required for Azure MySQL connection
+
+---
+# Step 1: Create application directory
+- name: "[APP] Create application directory"
+  file:
+    path: /opt/{{ app_name }}
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+# Step 2: Login to GitHub Container Registry
+- name: "[APP] Login to GitHub Container Registry"
+  command: >
+    docker login ghcr.io
+    -u {{ github_username }}
+    -p {{ github_token }}
+  changed_when: false
+  no_log: true
+
+# Step 3: Verify image is accessible
+- name: "[CHECK] Verify Docker image is accessible on GHCR"
+  command: >
+    docker manifest inspect ghcr.io/{{ github_username | lower }}/t-clo-901-app:latest
+  changed_when: false
+  register: image_check
+  failed_when: false
+
+- name: "[CHECK] Fail if image not available"
+  fail:
+    msg: |
+      Docker image not found at ghcr.io/{{ github_username | lower }}/t-clo-901-app:latest
+      Push it first:
+        docker tag t-clo-901-app:latest ghcr.io/{{ github_username | lower }}/t-clo-901-app:latest
+        docker push ghcr.io/{{ github_username | lower }}/t-clo-901-app:latest
+  when: image_check.rc != 0
+
+# Step 4: Create .env file for Laravel
+# DB_HOST changes based on environment:
+#   dev     → "mysql" (Docker service name)
+#   staging → Azure MySQL FQDN
+#   prod    → Azure MySQL FQDN
+- name: "[APP] Create Laravel .env file"
+  copy:
+    dest: /opt/{{ app_name }}/.env
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+    content: |
+      APP_NAME={{ app_name }}
+      APP_ENV={{ 'local' if environment == 'dev' else environment }}
+      APP_KEY={{ app_key }}
+      APP_DEBUG={{ 'true' if environment == 'dev' else 'false' }}
+      APP_URL=http://{{ inventory_hostname }}
+
+      LOG_CHANNEL=stderr
+
+      DB_CONNECTION=mysql
+      DB_HOST={{ db_host }}
+      DB_PORT=3306
+      DB_DATABASE={{ db_name }}
+      DB_USERNAME={{ db_username }}
+      DB_PASSWORD={{ db_password }}
+      {% if use_external_db | bool %}
+
+      # Azure MySQL requires SSL
+      MYSQL_ATTR_SSL_CA=/etc/ssl/certs/ca-certificates.crt
+      {% endif %}
+
+# ============================================
+# DEV ENVIRONMENT: docker-compose with app + MySQL
+# ============================================
+- name: "[APP] Create docker-compose.yml (DEV - with local MySQL)"
+  copy:
+    dest: /opt/{{ app_name }}/docker-compose.yml
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+    content: |
+      services:
+        # Laravel Application
+        app:
+          image: ghcr.io/{{ github_username | lower }}/t-clo-901-app:latest
+          container_name: laravel-app
+          restart: unless-stopped
+          ports:
+            - "80:80"
+          env_file:
+            - .env
+          depends_on:
+            mysql:
+              condition: service_healthy
+          networks:
+            - app-network
+
+        # MySQL Database (local to this VM)
+        mysql:
+          image: mysql:8.0
+          container_name: laravel-mysql
+          restart: unless-stopped
+          environment:
+            MYSQL_ROOT_PASSWORD: "{{ db_password }}"
+            MYSQL_DATABASE: "{{ db_name }}"
+            MYSQL_USER: "{{ db_username }}"
+            MYSQL_PASSWORD: "{{ db_password }}"
+          ports:
+            - "3306:3306"
+          volumes:
+            - mysql-data:/var/lib/mysql
+          healthcheck:
+            test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p{{ db_password }}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 30s
+          networks:
+            - app-network
+
+      volumes:
+        mysql-data:
+          driver: local
+
+      networks:
+        app-network:
+          driver: bridge
+  when: not (use_external_db | bool)
+
+# ============================================
+# STAGING/PROD: docker-compose with app only
+# ============================================
+- name: "[APP] Create docker-compose.yml (STAGING/PROD - external MySQL)"
+  copy:
+    dest: /opt/{{ app_name }}/docker-compose.yml
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+    content: |
+      services:
+        # Laravel Application (connects to external Azure MySQL)
+        app:
+          image: ghcr.io/{{ github_username | lower }}/t-clo-901-app:latest
+          container_name: laravel-app
+          restart: unless-stopped
+          ports:
+            - "80:80"
+          env_file:
+            - .env
+          networks:
+            - app-network
+
+      networks:
+        app-network:
+          driver: bridge
+  when: use_external_db | bool
+
+# Step 5: Pull the latest images
+- name: "[APP] Pull Docker images"
+  command: docker compose pull
+  args:
+    chdir: /opt/{{ app_name }}
+  changed_when: true
+
+# Step 6: Start the application
+- name: "[APP] Start application with Docker Compose"
+  command: docker compose up -d
+  args:
+    chdir: /opt/{{ app_name }}
+  changed_when: true
+
+# Step 7: Wait for MySQL (dev only - local container)
+- name: "[APP] Wait for local MySQL to be ready (dev)"
+  command: docker compose exec -T mysql mysqladmin ping -h localhost -u root -p{{ db_password }}
+  args:
+    chdir: /opt/{{ app_name }}
+  register: mysql_ready
+  retries: 30
+  delay: 5
+  until: mysql_ready.rc == 0
+  changed_when: false
+  no_log: true
+  when: not (use_external_db | bool)
+
+# Step 8: Wait for app container to be healthy
+- name: "[APP] Wait for app container to start"
+  pause:
+    seconds: 15
+  when: use_external_db | bool
+
+# Step 9: Run Laravel migrations
+- name: "[APP] Run Laravel database migrations"
+  command: docker compose exec -T app php artisan migrate --force
+  args:
+    chdir: /opt/{{ app_name }}
+  register: migration_result
+  changed_when: "'Migrating' in migration_result.stdout"
+
+- name: "[APP] Display migration result"
+  debug:
+    msg: "{{ migration_result.stdout_lines }}"
+  when: migration_result.stdout_lines | length > 0
+
+# Step 10: Verify containers
+- name: "[CHECK] Verify containers are running"
+  command: docker compose ps
+  args:
+    chdir: /opt/{{ app_name }}
+  changed_when: false
+  register: containers_status
+
+- name: "[CHECK] Display running containers"
+  debug:
+    msg: "{{ containers_status.stdout_lines }}"
+
+# Step 11: Test the application
+- name: "[CHECK] Test application HTTP response"
+  uri:
+    url: "http://localhost"
+    return_content: false
+    status_code: [200, 302]
+  register: http_test
+  retries: 5
+  delay: 10
+  until: http_test.status in [200, 302]
+
+# Step 12: Deployment summary
+- name: "[CHECK] Deployment summary"
+  debug:
+    msg: |
+      ✅ IaaS {{ environment | upper }} deployment complete!
+        - Application: http://{{ inventory_hostname }}
+        - Database: {{ 'External Azure MySQL (' + db_host + ')' if use_external_db | bool else 'Local Docker MySQL' }}
+        - Containers: {{ 'app only' if use_external_db | bool else 'app + mysql' }}
+        - Environment: {{ environment }}

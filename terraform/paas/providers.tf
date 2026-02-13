@@ -2,12 +2,12 @@
 
 # Specify the required Terraform version and providers
 terraform {
-  required_version = ">= 1.7.0"
+  required_version = "= 1.14.4"
 
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 4.0" # Use stable version 4.x of the Azure provider
+      version = "= 4.59.0" # Use stable version 4.x of the Azure provider
     }
   }
 }
