@@ -80,10 +80,10 @@ resource "azurerm_linux_web_app" "main" {
       "APP_ENV"   = local.is_dev ? "local" : var.environment
       "APP_KEY"   = var.app_key
       "APP_DEBUG" = local.is_dev ? "true" : "false"
-      "APP_URL"   = local.is_dev ? "https://app-${var.app_name}.azurewebsites.net" : "https://app-${var.app_name}-${var.environment}.azurewebsites.net"
+      "APP_URL"   = "https://app-${var.app_name}-${var.environment}.azurewebsites.net"
 
       "LOG_CHANNEL"                         = "stderr"
-      "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = local.is_dev ? "true" : "false"
+      "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false" # Disable persistent storage for Docker containers
     },
     {
       "DB_CONNECTION" = "mysql"
@@ -92,10 +92,10 @@ resource "azurerm_linux_web_app" "main" {
       "DB_DATABASE"   = var.db_name
       "DB_USERNAME"   = var.db_admin_username
       "DB_PASSWORD"   = var.db_admin_password
-      # "DATABASE_URL"      = "mysql://${var.db_admin_username}:${var.db_admin_password}@${var.external_db_host}:3306/${var.db_name}"
-      "DATABASE_URL" = "mysql://${var.db_admin_username}:${urlencode(var.db_admin_password)}@${var.external_db_host}:3306/${var.db_name}"
 
-      "MYSQL_ATTR_SSL_CA" = "/etc/ssl/certs/DigiCertGlobalRootCA.crt.pem"
+      # "MYSQL_ATTR_SSL_CA" = "/etc/ssl/certs/DigiCertGlobalRootCA.crt.pem"
+      "MYSQL_ATTR_SSL_CA" = "/etc/ssl/certs/ca-certificates.crt"
+
     }
   )
 
